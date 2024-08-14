@@ -28,12 +28,9 @@ def get_args():
 class Cell:
     def __init__(self, cell):
         self.cell = cell
-        self.cell_type = cell["cell_type"]
-        self.source = cell["source"]
-        if "outputs" in cell.keys():
-            self.outputs = cell["outputs"]
-        else:
-            self.outputs = None
+        self.cell_type = cell.get("cell_type")
+        self.source = cell.get("source")
+        self.outputs = cell.get("outputs")
 
 
 class Notebook:
@@ -47,7 +44,7 @@ class Notebook:
         return nbformat.read(self.path, as_version=self.version)
 
     def _parse_cells(self):
-        cells = map(Cell, self.notebook["cells"])
+        cells = map(Cell, self.notebook.get("cells"))
         return cells
 
 
