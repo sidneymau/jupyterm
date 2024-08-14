@@ -1,0 +1,19 @@
+[project]
+name = "jupyterm"
+requires-python = ">=3.9"
+license = {file = "LICENSE"}
+readme = "README.md"
+description = "TUI Jupyter notebook viewer"
+authors = [
+    {name = "Sidney Mau", email = "sidneymau@gmail.com" }
+]
+dynamic = ["version"]
+dependencies = [
+    "nbformat",
+    "pillow",
+    "prompt_toolkit",
+    "Pygments",
+]
+
+[project.scripts]
+jupyterm = "jupyterm:main"
