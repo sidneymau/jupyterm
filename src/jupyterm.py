@@ -21,7 +21,7 @@ from pygments.lexers.markup import MarkdownLexer
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("file", type=str, help="Jupyter notebook file to view [.ipynb]")
-    parser.add_argument("--color", action="store_const", const=True, help="Whether or not to highlight syntax")
+    parser.add_argument("--color", action="store_const", const=True, help="highlight syntax")
     return parser.parse_args()
 
 

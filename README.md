@@ -12,5 +12,5 @@ positional arguments:
 
 options:
   -h, --help  show this help message and exit
-  --color     Whether or not to highlight syntax
+  --color     highlight syntax
  ```
