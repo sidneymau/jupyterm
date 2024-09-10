@@ -1,36 +1,23 @@
-#!/usr/bin/env python
 import argparse
 import io
+import itertools
 import functools
+import os
 
 import base64
 from PIL import Image
 import nbformat
-from prompt_toolkit import Application
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.key_binding.bindings.focus import focus_next, focus_previous
-from prompt_toolkit.layout import ScrollablePane
-from prompt_toolkit.layout.layout import Layout
-from prompt_toolkit.layout.containers import HSplit
-from prompt_toolkit.widgets import Frame, Label, TextArea, Button
-from prompt_toolkit.lexers import PygmentsLexer
-from pygments.lexers.python import PythonLexer
-from pygments.lexers.markup import MarkdownLexer
+
+from textual.app import App, ComposeResult
+from textual.containers import Container, VerticalScroll
+from textual.widgets import Button, Footer, Header, Static, TextArea
 
 
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("file", type=str, help="Jupyter notebook file to view [.ipynb]")
-    parser.add_argument("--color", action="store_const", const=True, help="highlight syntax")
+    # parser.add_argument("--color", action="store_const", const=True, help="highlight syntax")
     return parser.parse_args()
-
-
-class Cell:
-    def __init__(self, cell):
-        self.cell = cell
-        self.cell_type = cell.get("cell_type")
-        self.source = cell.get("source")
-        self.outputs = cell.get("outputs")
 
 
 class Notebook:
@@ -44,108 +31,103 @@ class Notebook:
         return nbformat.read(self.path, as_version=self.version)
 
     def _parse_cells(self):
-        cells = map(Cell, self.notebook.get("cells"))
-        return cells
+        for cell in self.notebook.get("cells"):
+            yield cell
 
 
-def _display_handler(output):
-    """
-    Some of the logic in this function comes from
-    https://github.com/damienmarlier51/Junix/tree/master
-    """
-    for content_type, content in output.get("data", {}).items():
-        if content_type.startswith("image/"):
-            image_raw = base64.b64decode(content)
-            image_bytes = io.BytesIO(image_raw)
-            with Image.open(image_bytes) as image:
-                image.show()
-        else:
-            # TODO log this but otherwise don't complain too much
-            # raise ValueError(f"output of type {content_type} cannot be displayed")
-            continue
-    return
+def _display_handler(content):
+    image_raw = base64.b64decode(content)
+    image_bytes = io.BytesIO(image_raw)
+    with Image.open(image_bytes) as image:
+        image.show()
+
+
+class DisplayButton(Button):
+    pass
+
+    def on_mount(self) -> None:
+        self.styles.border = ("solid", "white")
+        self.styles.padding = 0
+        self.styles.margin = 0
+        self.styles.width = "auto"
+        self.styles.height = "auto"
+
+
+class CodeCell(Static):
+    def on_mount(self) -> None:
+        self.styles.border = ("solid", "white")
+
+
+class OutputCell(Static):
+    pass
+    # def on_mount(self) -> None:
+    #     # self.styles.background = "darkred"
+    #     # self.styles.border = ("hkey", "white")
+
+
+class NotebookApp(App):
+    # BINDINGS = [
+    #     ("d", "toggle_dark", "Toggle dark mode"),
+    # ]
+
+    def on_mount(self) -> None:
+        self.title = "Jupyterm"
+        self.sub_title = f"{self.file}"
+
+    def compose(self) -> ComposeResult:
+        args = get_args()
+        if not args.file.lower().endswith(".ipynb"):
+            raise ValueError(f"{args.file} is not a jupyter notebook file.")
+        if not os.path.exists(args.file):
+            raise ValueError(f"{args.file} does not exist.")
+
+        self.file = args.file
+        nb = Notebook(self.file)
+        cells = nb.cells
+
+        self.counter = itertools.count()
+        self.display_data = {}
+
+        yield Header()
+        with Container():
+            with VerticalScroll():
+                for i, cell in enumerate(cells):
+                    execution_count = cell.get("execution_count")
+                    match cell.cell_type:
+                        case "code":
+                            yield CodeCell(cell.source)
+                            if cell.outputs:
+                                for output in cell.outputs:
+                                    if "text" in output.keys():
+                                        yield OutputCell(output.get("text"))
+                                    if output.get("output_type") == "display_data":
+                                        for content_type, content in output.get("data", {}).items():
+                                            if content_type.startswith("image/"):
+                                                count = next(self.counter)
+                                                button_id = f"d{count}"
+                                                self.display_data[button_id] = content
+                                                yield DisplayButton(
+                                                    "Display data [press <enter> to display]",
+                                                    id=button_id,
+                                                )
+                                    else:
+                                        yield OutputCell(f"[{output.get('output_type')}]")
+                        case "markdown":
+                            yield Static(cell.source, expand=True)
+                        case _:
+                            pass
+        yield Footer()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id
+        content = self.display_data[button_id]
+        _display_handler(content)
+
+    # def action_toggle_dark(self) -> None:
+    #     """An action to toggle dark mode."""
+    #     self.dark = not self.dark
 
 
 def main():
-    args = get_args()
-    if not args.file.lower().endswith(".ipynb"):
-        raise ValueError(f"{args.file} is not a jupyter notebook file.")
-
-    nb = Notebook(args.file)
-
-    cells = []
-    for i, cell in enumerate(nb.cells):
-        match cell.cell_type:
-            case "code":
-                cells.append(
-                    Frame(
-                        TextArea(
-                            text=cell.source,
-                            read_only=True,
-                            line_numbers=True,
-                            lexer=PygmentsLexer(PythonLexer) if args.color else None,
-                        ),
-                        title=f"{i + 1}",
-                    )
-                )
-                if cell.outputs:
-                    for output in cell.outputs:
-                        if "text" in output.keys():
-                            cells.append(
-                                TextArea(
-                                    text=output.get("text"),
-                                    read_only=True,
-                                    line_numbers=False,
-                                )
-                            )
-                        if output.get("output_type") == "display_data":
-                            display_handler = functools.partial(
-                                _display_handler, output=output
-                            )
-                            cells.append(
-                                Button(
-                                    text="Display data [press <enter> to display]",
-                                    handler=display_handler,
-                                )
-                            )
-            case "markdown":
-                cells.append(
-                    Frame(
-                        TextArea(
-                            text=cell.source,
-                            read_only=True,
-                            line_numbers=False,
-                            lexer=PygmentsLexer(MarkdownLexer) if args.color else None,
-                        ),
-                        title=f"{i + 1}",
-                    )
-                )
-            case _:
-                pass
-
-    root_container = HSplit(
-        [
-            Label(args.file, style="underline"),
-            ScrollablePane(HSplit(cells)),
-        ]
-    )
-
-    layout = Layout(container=root_container)
-
-    kb = KeyBindings()
-
-    @kb.add("q")
-    def exit_(event):
-        event.app.exit()
-
-    kb.add("pageup")(focus_previous)
-    kb.add("pagedown")(focus_next)
-
-    app = Application(
-        layout=layout,
-        key_bindings=kb,
-        enable_page_navigation_bindings=True,
-        full_screen=True,
-    )
+    app = NotebookApp()
     app.run()
-
